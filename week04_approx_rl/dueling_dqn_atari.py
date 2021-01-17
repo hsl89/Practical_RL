@@ -1,4 +1,5 @@
-# Training a DQN agent to play break-out
+# Training a Dueling Double DQN agent to play break-out
+
 import random
 import numpy as np
 import torch
@@ -125,7 +126,7 @@ def conv2d_size_out(size, kernel_size, stride):
     """
     return (size - (kernel_size - 1) - 1) // stride  + 1
 
-class DQNAgent(nn.Module):
+class DuelingDQNAgent(nn.Module):
     def __init__(self, state_shape, n_actions, epsilon=0):
         super().__init__()
         self.epsilon = epsilon
@@ -147,8 +148,20 @@ class DQNAgent(nn.Module):
 
         # size of the output tensor after convolution batch_size x 64 x out_size x out_size
         self.linear = nn.Linear(64*out_size*out_size, 256)
-        self.qvalues = nn.Linear(256, self.n_actions) 
         
+        # advantage
+        self.advantage = nn.Sequential(
+            nn.Linear(256, 512),
+            nn.ReLU(),
+            nn.Linear(512, self.n_actions)
+        )
+        
+        # state value
+        self.value = nn.Sequential(
+            nn.Linear(256, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
 
     def forward(self, state_t):
         """
@@ -167,7 +180,12 @@ class DQNAgent(nn.Module):
         t = t.view(state_t.shape[0], -1)
         t = self.linear(t)
         t = F.relu(t)
-        qvalues = self.qvalues(t)
+        
+        # compute advantage and state value as different heads
+        advantage = self.advantage(t)
+        value = self.value(t)
+        
+        qvalues = value + advantage - advantage.mean(dim=1, keepdim=True)
 
         assert qvalues.requires_grad, "qvalues must be a torch tensor with grad"
         assert len(
@@ -196,9 +214,6 @@ class DQNAgent(nn.Module):
             [0, 1], batch_size, p=[1-epsilon, epsilon])
         return np.where(should_explore, random_actions, best_actions)
     
-    
-agent = DQNAgent(state_shape, n_actions, epsilon=0.5).to(device)
-print("DQN agent created")
 
 # Evaluate the agent
 def evaluate(env, agent, n_games=1, greedy=False, t_max=10000):
@@ -253,7 +268,11 @@ def compute_td_loss(states, actions, rewards, next_states, is_done,
                     gamma=0.99,
                     check_shapes=False,
                     device=device):
-    """ Compute td loss using torch operations only. Use the formulae above. """
+    """ Compute td loss using torch operations only. Use the formulae above. '''
+    
+    objective of agent is 
+    \hat Q(s_t, a_t) = r_t + \gamma Target(s_{t+1}, argmax_{a} Q(s_{t+1}, a))
+    """
     states = torch.tensor(states, device=device, dtype=torch.float)    # shape: [batch_size, *state_shape]
 
     # for some torch reason should not make actions a tensor
@@ -267,25 +286,26 @@ def compute_td_loss(states, actions, rewards, next_states, is_done,
         dtype=torch.float
     )  # shape: [batch_size]
     is_not_done = 1 - is_done
-
+    
     # get q-values for all actions in current states
     predicted_qvalues = agent(states)
-    
-
+   
     # compute q-values for all actions in next states
     predicted_next_qvalues = target_network(next_states)
-    
+   
+    # best action in next state
+    next_best_actions = torch.argmax(agent(states), dim=1)
+
     # select q-values for chosen actions
     predicted_qvalues_for_actions = predicted_qvalues[range(
         len(actions)), actions]
     
-    # compute V*(next_states) using predicted next q-values
-    #next_state_values = <YOUR CODE>
-    # overly optimistic
-    next_state_values, _ = predicted_next_qvalues.max(dim=1)
-
-    assert next_state_values.dim(
-    ) == 1 and next_state_values.shape[0] == states.shape[0], "must predict one value per state"
+    # compute the objective of the agent
+    next_state_values = predicted_next_qvalues[range(
+        len(actions)), next_best_actions]                          
+                                                     
+    #assert next_state_values.dim(
+    #) == 1 and next_state_values.shape[0] == states.shape[0], "must predict one value per state"
 
     # compute "target q-values" for loss - it's what's inside square parentheses in the above formula.
     # at the last state use the simplified formula: Q(s,a) = r(s,a) since s' doesn't exist
@@ -317,8 +337,8 @@ state_shape = env.observation_space.shape
 n_actions = env.action_space.n
 state = env.reset()
 
-agent = DQNAgent(state_shape, n_actions, epsilon=1).to(device)
-target_network = DQNAgent(state_shape, n_actions).to(device)
+agent = DuelingDQNAgent(state_shape, n_actions, epsilon=1).to(device)
+target_network = DuelingDQNAgent(state_shape, n_actions).to(device)
 target_network.load_state_dict(agent.state_dict())
 
 exp_replay = ReplayBuffer(10**4)
@@ -341,14 +361,14 @@ print(len(exp_replay))
 
 timesteps_per_epoch = 1
 batch_size = 16
-total_steps = 3 * 10**6
-decay_steps = 10**6
+total_steps = 3 * 10**6 # Debug param
+decay_steps = 10**6 # Debug param
 
-# metrics and ckpt
+# logs and ckpt
 ckpt_dir = 'logs'
-ckpt_file = 'dqn_ckpt.pth'
-metrics_file = 'dqn_metrics.pth'
-ckpt_freq = 10*5000
+ckpt_file = 'dueling_ckpt.pth'
+metrics_file = 'dueling_metrics.pth'
+ckpt_freq = 10*5000 # Debug param
 
 opt = torch.optim.Adam(agent.parameters(), lr=1e-4)
 
@@ -372,6 +392,7 @@ step = 0
 print("Starts training on {}".format(next(agent.parameters()).device))
                                
 for step in range(step, total_steps + 1):
+    '''
     if not utils.is_enough_ram():
         print('less that 100 Mb RAM available, freezing')
         print('make sure everythin is ok and make KeyboardInterrupt to continue')
@@ -380,6 +401,7 @@ for step in range(step, total_steps + 1):
                 pass
         except KeyboardInterrupt:
             pass
+    '''
 
     agent.epsilon = utils.linear_decay(init_epsilon, final_epsilon, step, decay_steps)
 
