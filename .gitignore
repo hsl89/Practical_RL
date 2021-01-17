@@ -75,3 +75,12 @@ debian/reproducible-experiment-platform
 debian/files
 *.substvars
 *.debhelper.log
+
+# pytorch
+*.pth
+
+# vim
+*.swp
+
+# pickle
+*.pkl
