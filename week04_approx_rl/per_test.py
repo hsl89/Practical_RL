@@ -96,7 +96,7 @@ def test_update(capacity):
     n = 10
     idx = random.sample([x for x in range(capacity-1, 2*capacity-1)], n)
     
-    new_priority = [random.randint(0, capacity*2)]
+    new_priority = [random.randint(0, capacity*2) for _ in range(n)]
     
     for i, p in zip(idx, new_priority):
         sumtree.update(i, p)
@@ -119,6 +119,40 @@ def test_update(capacity):
         
     # sumtree == new_tree
     assert_equal(sumtree.tree, new_tree.tree)
+    return
+
+# Complicated logics are implemented in SumTree
+# There isn't too much to be tested in PrioritizedReplayBuffer
+# Just make sure the methods are bug free
+
+def test_per(capacity):
+    # test implementation of proritized replay buffer
+    p_buffer = PrioritizedReplayBuffer(capacity)
+    
+    # populate the buffer
+    for _ in range(capacity // 2):
+        p_buffer.add(Experience())
+    
+    # update batches of experience
+    n_batches = 10
+    batch_size = 100
+    for _ in range(10):
+        # randomly sample $batch_size of tree indices
+        idx = random.sample(
+            [x for x in range(capacity-1, 2*capacity-1)], 
+            batch_size)
+        
+        td_errors = np.random.uniform(0, 10, batch_size)
+        
+        p_buffer.batch_update(idx, td_errors)
+        
+        assert p_buffer.tree.max_priority == np.max(p_buffer.tree.tree[-capacity:])
+        
+    # test sample
+    for _ in range(10):
+        p_buffer.sample(batch_size)
+    
+    return 
         
     
 
@@ -126,5 +160,6 @@ if __name__ == '__main__':
     print('======== Testing ===========')
     test_max_and_total_priority(capacity)
     test_sampling(capacity)
-    
     test_update(capacity)
+    test_per(capacity)
+    

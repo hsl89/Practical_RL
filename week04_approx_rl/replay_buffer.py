@@ -256,7 +256,7 @@ class PrioritizedReplayBuffer:
         clipped_errors = np.minimum(
             abs_errors, self.absolute_error_upper
             )
-        ps = np.power(clipped_error, self.PER_a)
+        ps = np.power(clipped_errors, self.PER_a)
         for ti, p in zip(b_idx, ps):
             self.tree.update(ti, p)
         return
