@@ -187,7 +187,9 @@ class SumTree:
         data_ptr = left_ptr - self.capacity + 1
         return left_ptr, self.tree[left_ptr], self.data[data_ptr]
 
-
+    def get_priority(self, tree_ptr):
+        """Get the priority at the leaf node pointed to by tree_ptr"""
+        return self.tree[tree_ptr]
 
 class PrioritizedReplayBuffer:
     # Hyperparameter used to avoid some expr having
@@ -229,6 +231,10 @@ class PrioritizedReplayBuffer:
     def sample(self, batch_size):
         """Sample a batch of experiences according to
         their priorities
+        
+        Return:
+            (indices of samples in tree, samples, importance sampling weights)
+            Each object in the tuple is a list
         """
         # sampled experiences
         minibatch = []
@@ -246,7 +252,15 @@ class PrioritizedReplayBuffer:
             ix, priority, expr = self.tree.get_leaf(cp)
             b_idx[i] = ix
             minibatch.append(expr)
-        return b_idx, minibatch
+            
+        # compute the importance sampling weights
+        weights = np.zeros(batch_size, dtype=np.float32)
+        for i, tree_ptr in enumerate(b_idx):
+            weights[i] = self.tree.get_priority(tree_ptr)
+           
+        weights = self.size() * weights
+        weights = np.pow(weights, -self.PER_b)
+        return b_idx, minibatch, weights.tolist()
 
     def batch_update(self, b_idx, abs_errors):
         """Update the priorities of the batch of 
