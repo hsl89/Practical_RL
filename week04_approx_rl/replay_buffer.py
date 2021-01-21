@@ -77,8 +77,6 @@ class ReplayBuffer(object):
 class SumTree:
     """A binary tree to efficiently sample experiences based on
     curmulative priority
-    
-
     """
     def __init__(self, capacity):
         """The capacity needs to be 2**n 
@@ -95,7 +93,7 @@ class SumTree:
         self.tree =  np.zeros(2*capacity - 1)
 
         # pointer to the nodes in self.tree
-        self.tree_ptr = 0 
+        #self.tree_ptr = 0 
         
         # experiences
         self.data = np.zeros(capacity, dtype=object)
@@ -105,6 +103,9 @@ class SumTree:
         
         # maximum priority
         self._max_priority = 0.0
+        
+        # size
+        self.size = 0
 
     def add(self, priority, experience):
         """Add a an experience to the buffer"""
@@ -119,7 +120,9 @@ class SumTree:
         
         # move data pointer to the next position
         self.data_ptr += 1
+        
 
+        
         # remove the earliest expr when the storage is full
         # idea is earlier experience comes from weaker policy
         # we wont lose that much by throwing it away
@@ -131,7 +134,13 @@ class SumTree:
             if self.tree[-self.capacity] == self._max_priority:
                 self._max_priority = np.max(self.tree[-self.capacity+1:])
             self.data_ptr = 0
+        else:
+            self.size+=1
+            
         return
+    
+    def __len__(self):
+        return self.size
 
     def update(self, tree_ptr, priority):
         """Update the value (sum of child nodes)
@@ -208,9 +217,19 @@ class PrioritizedReplayBuffer:
 
     # Hyperparameter used to clip the TD error
     absolute_error_upper = 1.0
+    
+    # step size to increase the PER_b
+    PER_b_incremental_size = 0.0001
 
     def __init__(self, capacity):
         self.tree = SumTree(capacity)
+        
+    def __len__(self):
+        return len(self.tree)
+    
+    def increment_b(self):
+        self.PER_b = max(1.0, self.PER_b + self.PER_b_incremental_size)
+        return
 
     def add(self, experience):
         """Push one experience to the buffer 
@@ -227,7 +246,7 @@ class PrioritizedReplayBuffer:
             max_priority = self.PER_e
         self.tree.add(max_priority, experience)
         return
-
+    
     def sample(self, batch_size):
         """Sample a batch of experiences according to
         their priorities
@@ -244,23 +263,31 @@ class PrioritizedReplayBuffer:
         b_idx = [0]*batch_size
 
         priority_segment = self.tree.total_priority / batch_size
-
+        obses_t, actions, rewards, obses_tp1, dones = [], [], [], [], []
         for i in range(batch_size):
             a, b = priority_segment*i, priority_segment*(i+1)
             # cumulative priority
             cp = np.random.uniform(a, b)
             ix, priority, expr = self.tree.get_leaf(cp)
             b_idx[i] = ix
-            minibatch.append(expr)
+            
+            obs_t, action_t, reward_t, obs_tp1, done = expr
+            obses_t.append(obs_t)
+            actions.append(action_t)
+            rewards.append(reward_t)
+            obses_tp1.append(obs_tp1)
+            dones.append(done)
+            
+            
             
         # compute the importance sampling weights
         weights = np.zeros(batch_size, dtype=np.float32)
         for i, tree_ptr in enumerate(b_idx):
             weights[i] = self.tree.get_priority(tree_ptr)
            
-        weights = self.size() * weights
-        weights = np.pow(weights, -self.PER_b)
-        return b_idx, minibatch, weights.tolist()
+        weights = len(self) * weights
+        weights = np.power(weights, -self.PER_b)
+        return b_idx, obses_t, actions, rewards, obses_tp1, dones, weights.tolist()
 
     def batch_update(self, b_idx, abs_errors):
         """Update the priorities of the batch of 
