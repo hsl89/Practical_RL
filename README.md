@@ -27,7 +27,7 @@ Taught on-campus at [HSE](https://cs.hse.ru) and [YSDA](https://yandexdataschool
 
 # Additional materials
 * [RL reading group](https://github.com/yandexdataschool/Practical_RL/wiki/RL-reading-group)
-
+* [Berkley CS294](https://www.youtube.com/playlist?list=PLkFD6_40KJIxJMR-j5A1mkxK26gh_qg37)
 
 # Syllabus
 

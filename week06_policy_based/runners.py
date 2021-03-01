@@ -31,11 +31,15 @@ class EnvRunner:
         observations = []
         rewards = []
         resets = []
+        estimated_values = []
         self.state["env_steps"] = self.nsteps
-
+         
+        #print("== number of steps to sample ==")
+        #print(self.nsteps)
         for i in range(self.nsteps):
             observations.append(self.state["latest_observation"])
             act = self.policy.act(self.state["latest_observation"])
+            
             if "actions" not in act:
                 raise ValueError("result of policy.act must contain 'actions' "
                                  f"but has keys {list(act.keys())}")
